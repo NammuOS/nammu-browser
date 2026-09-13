@@ -1,0 +1,25 @@
+{
+  "name": "@nammu/browser",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "bun scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@nammu/sdk": "file:../nammu-os/src/sdk",
+    "lucide-react": "^0.577.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@tailwindcss/postcss": "^4.3.3",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^4.2.1",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "manifestVersion": 1,
+  "id": "os.nammu.browser",
+  "name": "Browser",
+  "version": "1.0.0",
+  "runtime": "integration",
+  "entry": "app/index.html",
+  "minNammuVersion": "0.8.0",
+  "dataSchemaVersion": 1,
+  "permissions": [
+    "filesystem.user-selected.read",
+    "filesystem.user-selected.write",
+    "clipboard.read",
+    "clipboard.write",
+    "migration.legacy-storage",
+    "integration.web-surfaces",
+    "integration.services",
+    "window.manage"
+  ],
+  "legacyStorageKeys": [
+    "nammu_browser_bookmarks",
+    "nammu_browser_history",
+    "nammu_browser_preferences",
+    "nammu_browser_new_tab_workspace_v1"
+  ],
+  "publisher": "nammu-official",
+  "publisherKeyId": "nammu-official-2026-09",
+  "capabilities": [
+    {
+      "type": "web-surface",
+      "name": "browser-public",
+      "navigation": { "mode": "public-web" },
+      "maxSurfaces": 16,
+      "persistentProfile": true,
+      "untrustedProxyRouting": true
+    },
+    { "type": "service", "name": "browser.search" },
+    { "type": "service", "name": "browser.public-proxies" }
+  ]
+}
