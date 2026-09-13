@@ -3,8 +3,12 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   normalizeBrowserUrl,
+  getStoredBrowserPreferences,
+  getStoredHistory,
   reconcileBrowserHistoryPosition,
   sanitizeBookmarks,
+  saveStoredBrowserPreferences,
+  saveStoredHistory,
   type Bookmark,
   type HistoryEntry,
   type QuickDial,
@@ -20,6 +24,7 @@ import {
   sanitizeNewTabState,
   searchNewTabContent,
 } from '../src/browser/new-tab/newTabModel';
+import { initializeBrowserStorage } from '../src/host/storage';
 
 const dials: QuickDial[] = Array.from({ length: 6 }, (_, index) => ({
   id: `dial-${index}`,
@@ -88,6 +93,65 @@ describe('os.nammu.browser package boundary', () => {
     ]) {
       expect(source).not.toContain(forbidden);
     }
+  });
+
+  it('routes restored product commands only through the typed WebSurface SDK', () => {
+    const browser = readFileSync(resolve(import.meta.dir, '..', 'src/browser/BrowserApp.tsx'), 'utf8');
+    const host = readFileSync(resolve(import.meta.dir, '..', 'src/host/NativeWebSurface.tsx'), 'utf8');
+    for (const command of [
+      ": 'find'",
+      "surface.control('clear-find')",
+      "surface.control('print')",
+      "surface.control('save-page')",
+      "'enable-tracking-protection'",
+      "'block-autoplay'",
+    ]) {
+      expect(host).toContain(command);
+    }
+    expect(browser).toContain('Duplicate Tab');
+    expect(browser).toContain('Close Other Tabs');
+    expect(browser).toContain('Close Tabs to the Right');
+    expect(browser).toContain('requestFullscreen');
+  });
+
+  it('restores history and preferences from host-owned app settings after reopen', async () => {
+    const persisted = new Map<string, unknown>();
+    const app = {
+      settings: {
+        getAll: async () => Object.fromEntries(persisted),
+        set: async (key: string, value: unknown) => {
+          persisted.set(key, value);
+          return { success: true };
+        },
+      },
+      migration: {
+        readLegacyStorage: async () => null,
+        completeLegacyStorage: async () => ({ completed: true }),
+      },
+    } as any;
+
+    await initializeBrowserStorage(app);
+    saveStoredHistory([{ id: 'visit', title: 'Example', url: 'https://example.com/', timestamp: 1 }]);
+    saveStoredBrowserPreferences({
+      searchEngine: 'duckduckgo',
+      showBookmarksBar: false,
+      trackingProtection: true,
+      blockAutoplay: true,
+      defaultZoom: 130,
+    });
+    await Promise.resolve();
+    await initializeBrowserStorage(app);
+
+    expect(getStoredHistory()).toEqual([
+      { id: 'visit', title: 'Example', url: 'https://example.com/', timestamp: 1 },
+    ]);
+    expect(getStoredBrowserPreferences()).toMatchObject({
+      searchEngine: 'duckduckgo',
+      showBookmarksBar: false,
+      trackingProtection: true,
+      blockAutoplay: true,
+      defaultZoom: 130,
+    });
   });
 
   it('ships the complete deterministic productive new-tab workspace', () => {

@@ -1,11 +1,15 @@
 import {
   Bookmark,
   Download,
+  FileDown,
+  FileSearch,
+  Fullscreen,
   History,
   ListRestart,
   Minus,
   Network,
   Plus,
+  Printer,
   Settings,
   UserRoundPlus,
 } from 'lucide-react';
@@ -17,6 +21,10 @@ interface BrowserMenuProps {
   onNewTab: () => void;
   onNewPrivateTab: () => void;
   onReopenClosedTab: () => void;
+  onFind: () => void;
+  onPrint: () => void;
+  onSavePage: () => void;
+  onToggleFullscreen: () => void;
   onShowHistory: () => void;
   onShowBookmarks: () => void;
   onShowDownloads: () => void;
@@ -64,6 +72,22 @@ export default function BrowserMenu(props: BrowserMenuProps) {
             <button type="button" onClick={props.onZoomIn} className="grid h-6 w-6 place-items-center rounded-md hover:bg-white/10" aria-label="Zoom in"><Plus size={12} /></button>
           </div>
         </div>
+        <button type="button" onClick={run(props.onFind)} className={itemClass}>
+          <span className="flex items-center gap-2"><FileSearch size={13} />Find in Page</span>
+          <span className="text-[9px] text-white/35">Ctrl F</span>
+        </button>
+        <button type="button" onClick={run(props.onPrint)} className={itemClass}>
+          <span className="flex items-center gap-2"><Printer size={13} />Print</span>
+          <span className="text-[9px] text-white/35">Ctrl P</span>
+        </button>
+        <button type="button" onClick={run(props.onSavePage)} className={itemClass}>
+          <span className="flex items-center gap-2"><FileDown size={13} />Save Page</span>
+          <span className="text-[9px] text-white/35">Ctrl S</span>
+        </button>
+        <button type="button" onClick={run(props.onToggleFullscreen)} className={itemClass}>
+          <span className="flex items-center gap-2"><Fullscreen size={13} />Fullscreen</span>
+          <span className="text-[9px] text-white/35">F11</span>
+        </button>
       </div>
 
       <button type="button" onClick={run(props.onShowBookmarks)} className={itemClass}><span className="flex items-center gap-2"><Bookmark size={13} />Bookmarks</span></button>

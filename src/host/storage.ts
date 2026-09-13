@@ -27,6 +27,7 @@ export const browserStorage = Object.freeze({
 
 export async function initializeBrowserStorage(app: NammuApp): Promise<void> {
   sdk = app;
+  values.clear();
   const settings = await app.settings.getAll();
   for (const key of LEGACY_KEYS) {
     const current = settings[key];

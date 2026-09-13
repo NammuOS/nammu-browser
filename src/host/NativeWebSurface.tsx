@@ -21,6 +21,14 @@ export interface NativeWebSurfaceHandle {
     scope: 'profile' | 'surface',
     endpoints: readonly WebSurfaceProxyEndpoint[],
   ): Promise<void>;
+  find(query: string, direction?: 'current' | 'next' | 'previous'): Promise<void>;
+  clearFind(): Promise<void>;
+  print(): Promise<void>;
+  savePage(): Promise<void>;
+  setProtectionPreferences(options: {
+    trackingProtection: boolean;
+    blockAutoplay: boolean;
+  }): Promise<void>;
 }
 
 interface Props {
@@ -97,6 +105,30 @@ const NativeWebSurface = forwardRef<NativeWebSurfaceHandle, Props>(function Nati
       setZoom: (next) => invoke(surfaceRef, (surface) => surface.setZoom(next)),
       setProxyRoute: (scope, endpoints) =>
         invoke(surfaceRef, (surface) => surface.setProxyRoute(scope, endpoints)),
+      find: (query, direction = 'current') =>
+        invoke(surfaceRef, (surface) =>
+          surface.control(
+            direction === 'next'
+              ? 'find-next'
+              : direction === 'previous'
+                ? 'find-previous'
+                : 'find',
+            { query },
+          ),
+        ),
+      clearFind: () => invoke(surfaceRef, (surface) => surface.control('clear-find')),
+      print: () => invoke(surfaceRef, (surface) => surface.control('print')),
+      savePage: () => invoke(surfaceRef, (surface) => surface.control('save-page')),
+      setProtectionPreferences: async ({ trackingProtection, blockAutoplay }) => {
+        await invoke(surfaceRef, (surface) =>
+          surface.control(
+            trackingProtection ? 'enable-tracking-protection' : 'disable-tracking-protection',
+          ),
+        );
+        await invoke(surfaceRef, (surface) =>
+          surface.control(blockAutoplay ? 'block-autoplay' : 'allow-autoplay'),
+        );
+      },
     }),
     [],
   );

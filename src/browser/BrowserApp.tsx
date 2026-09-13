@@ -4,7 +4,9 @@ import {
   ArrowRight,
   Bookmark as BookmarkIcon,
   ChevronLeft,
+  Copy,
   Download,
+  ExternalLink,
   Globe2,
   Home,
   Lock,
@@ -110,12 +112,19 @@ export default function BrowserApp() {
   const [closedTabs, setClosedTabs] = useState<BrowserTab[]>([]);
   const [zoom, setZoom] = useState(initialPreferences.defaultZoom);
   const [failure, setFailure] = useState('');
+  const [findOpen, setFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const [findStatus, setFindStatus] = useState('');
   const [surfaceReady, setSurfaceReady] = useState<Record<string, boolean>>({});
   const [tabMenu, setTabMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [bookmarkMenu, setBookmarkMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [editingBookmark, setEditingBookmark] = useState<Bookmark | null>(null);
   const [proxyOpen, setProxyOpen] = useState(false);
   const [browserProxy, setBrowserProxy] = useState<PublicProxyConnection | null>(null);
   const [tabProxies, setTabProxies] = useState<Record<string, PublicProxyConnection>>({});
   const surfaceRefs = useRef(new Map<string, NativeWebSurfaceHandle>());
+  const browserRootRef = useRef<HTMLDivElement | null>(null);
+  const findInputRef = useRef<HTMLInputElement | null>(null);
   const historyUrlRef = useRef(new Map<string, string>());
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -125,7 +134,8 @@ export default function BrowserApp() {
   }, [activeTabId, tabs]);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
-  const browserOverlayActive = menuOpen || panel !== null || tabMenu !== null || proxyOpen;
+  const browserOverlayActive =
+    menuOpen || panel !== null || tabMenu !== null || bookmarkMenu !== null || editingBookmark !== null || proxyOpen;
 
   useEffect(() => {
     setOmnibox(activeTab?.url === 'about:home' ? '' : activeTab?.url ?? '');
@@ -142,6 +152,7 @@ export default function BrowserApp() {
     const dismiss = () => {
       setMenuOpen(false);
       setTabMenu(null);
+      setBookmarkMenu(null);
     };
     window.addEventListener('pointerdown', dismiss);
     return () => window.removeEventListener('pointerdown', dismiss);
@@ -298,6 +309,23 @@ export default function BrowserApp() {
           setTabs((current) => [...current, restored]);
           setActiveTabId(restored.id);
         }
+      } else if (modifier && event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        setFindOpen(true);
+        window.setTimeout(() => findInputRef.current?.focus(), 0);
+      } else if (modifier && event.key.toLowerCase() === 'p') {
+        event.preventDefault();
+        void surfaceRefs.current.get(activeTab?.id ?? '')?.print().catch(setSurfaceFailure);
+      } else if (modifier && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void surfaceRefs.current.get(activeTab?.id ?? '')?.savePage().catch(setSurfaceFailure);
+      } else if (event.key === 'F11') {
+        event.preventDefault();
+        void toggleFullscreen();
+      } else if (event.key === 'Escape' && findOpen) {
+        setFindOpen(false);
+        setFindStatus('');
+        void surfaceRefs.current.get(activeTab?.id ?? '')?.clearFind();
       } else if (event.key === 'Escape') {
         setMenuOpen(false);
         setPanel(null);
@@ -306,7 +334,61 @@ export default function BrowserApp() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeTab, closeTab, closedTabs, openTab]);
+  }, [activeTab, closeTab, closedTabs, findOpen, openTab]);
+
+  const setSurfaceFailure = (error: unknown) => setFailure(browserError(error));
+
+  const toggleFullscreen = async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await browserRootRef.current?.requestFullscreen();
+    } catch (error) {
+      setSurfaceFailure(error);
+    }
+  };
+
+  const runFind = async (direction: 'current' | 'next' | 'previous' = 'current') => {
+    const query = findQuery.trim();
+    if (!query) {
+      setFindStatus('Enter text');
+      return;
+    }
+    try {
+      await surfaceRefs.current.get(activeTab?.id ?? '')?.find(query, direction);
+      setFindStatus('Search updated');
+    } catch (error) {
+      setSurfaceFailure(error);
+      setFindStatus('Unavailable');
+    }
+  };
+
+  const duplicateTab = (id: string) => {
+    const source = tabs.find((tab) => tab.id === id);
+    if (!source) return;
+    const duplicate = newTab({ url: source.url, privateSession: source.isPrivate });
+    setTabs((current) => [...current, { ...duplicate, title: source.title }]);
+    setActiveTabId(duplicate.id);
+  };
+
+  const closeOtherTabs = (id: string) => {
+    setTabs((current) => current.filter((tab) => tab.id === id || tab.isPinned));
+    setActiveTabId(id);
+  };
+
+  const closeTabsToRight = (id: string) => {
+    setTabs((current) => {
+      const index = current.findIndex((tab) => tab.id === id);
+      return current.filter((tab, tabIndex) => tabIndex <= index || tab.isPinned);
+    });
+  };
+
+  useEffect(() => {
+    for (const surface of surfaceRefs.current.values()) {
+      void surface
+        .setProtectionPreferences(preferences)
+        .catch(() => undefined);
+    }
+  }, [preferences.blockAutoplay, preferences.trackingProtection, surfaceReady]);
 
   const toggleBookmark = () => {
     if (!activeTab || !isRemoteUrl(activeTab.url)) return;
@@ -369,7 +451,7 @@ export default function BrowserApp() {
   const selectedBookmark = Boolean(activeTab && bookmarks.some((entry) => entry.url === activeTab.url));
 
   return (
-    <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#07090d] text-white">
+    <div ref={browserRootRef} className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#07090d] text-white">
       <div className="browser-tab-strip flex shrink-0 items-stretch overflow-visible border-b border-white/[0.06] bg-black/35 pl-0">
         <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-visible">
           {tabs.map((tab) => (
@@ -457,12 +539,48 @@ export default function BrowserApp() {
       {preferences.showBookmarksBar && (
         <div className="browser-bookmarks-bar flex shrink-0 items-center gap-1 overflow-x-auto border-b border-white/[0.055] bg-black/20 px-2">
           {bookmarks.slice(0, 24).map((bookmark) => (
-            <button key={bookmark.id} type="button" onClick={() => navigate(bookmark.url)} className="flex h-5 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[9px] text-white/58 hover:bg-white/[0.07] hover:text-white">
+            <button key={bookmark.id} type="button" onClick={() => navigate(bookmark.url)} onContextMenu={(event) => {
+              event.preventDefault();
+              setBookmarkMenu({ id: bookmark.id, x: event.clientX, y: event.clientY });
+            }} className="flex h-5 shrink-0 items-center gap-1.5 rounded-md px-1.5 text-[9px] text-white/58 hover:bg-white/[0.07] hover:text-white">
               {bookmark.favicon ? <img src={bookmark.favicon} alt="" className="h-3 w-3" /> : <Globe2 size={10} />}
               <span className="max-w-28 truncate">{bookmark.title}</span>
             </button>
           ))}
         </div>
+      )}
+
+      {findOpen && (
+        <form
+          onSubmit={(event) => { event.preventDefault(); void runFind('next'); }}
+          className="flex h-9 shrink-0 items-center justify-end gap-1.5 border-b border-white/[0.06] bg-black/25 px-2"
+        >
+          <div className="nammu-context-surface flex h-7 items-center gap-1.5 rounded-lg px-2">
+            <Search size={12} className="text-white/45" />
+            <input ref={findInputRef} value={findQuery} onChange={(event) => {
+              setFindQuery(event.target.value);
+              const query = event.target.value.trim();
+              if (query) {
+                void surfaceRefs.current
+                  .get(activeTab?.id ?? '')
+                  ?.find(query, 'current')
+                  .then(() => setFindStatus('Search updated'))
+                  .catch((error) => {
+                    setSurfaceFailure(error);
+                    setFindStatus('Unavailable');
+                  });
+              }
+            }} className="w-44 bg-transparent text-[11px] outline-none" placeholder="Find in page" />
+            <span className="min-w-16 text-center text-[9px] text-white/35">{findStatus}</span>
+            <button type="button" className="browser-control" onClick={() => void runFind('previous')} aria-label="Previous match"><ArrowLeft size={11} /></button>
+            <button type="button" className="browser-control" onClick={() => void runFind('next')} aria-label="Next match"><ArrowRight size={11} /></button>
+            <button type="button" className="browser-control" onClick={() => {
+              setFindOpen(false);
+              setFindStatus('');
+              void surfaceRefs.current.get(activeTab?.id ?? '')?.clearFind();
+            }} aria-label="Close find"><X size={11} /></button>
+          </div>
+        </form>
       )}
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
@@ -522,6 +640,7 @@ export default function BrowserApp() {
             onClose={() => setPanel(null)}
             onNavigate={(url) => { navigate(url); setPanel(null); }}
             onBookmarksChange={setBookmarks}
+            onEditBookmark={setEditingBookmark}
             onHistoryChange={setHistory}
             onPreferencesChange={setPreferences}
             onImportBookmarks={importBookmarks}
@@ -598,6 +717,13 @@ export default function BrowserApp() {
               setTabs((current) => [...current, restored]);
               setActiveTabId(restored.id);
             }}
+            onFind={() => {
+              setFindOpen(true);
+              window.setTimeout(() => findInputRef.current?.focus(), 0);
+            }}
+            onPrint={() => void surfaceRefs.current.get(activeTab?.id ?? '')?.print().catch(setSurfaceFailure)}
+            onSavePage={() => void surfaceRefs.current.get(activeTab?.id ?? '')?.savePage().catch(setSurfaceFailure)}
+            onToggleFullscreen={() => void toggleFullscreen()}
             onShowBookmarks={() => setPanel('bookmarks')}
             onShowHistory={() => setPanel('history')}
             onShowDownloads={() => setPanel('downloads')}
@@ -613,9 +739,11 @@ export default function BrowserApp() {
       {tabMenu && (
         <div
           className="nammu-context-surface fixed z-[100] w-40 rounded-xl p-1.5 shadow-2xl"
-          style={{ left: Math.min(tabMenu.x, window.innerWidth - 170), top: Math.min(tabMenu.y, window.innerHeight - 150) }}
+          style={{ left: Math.min(tabMenu.x, window.innerWidth - 190), top: Math.min(tabMenu.y, window.innerHeight - 260) }}
           onPointerDown={(event) => event.stopPropagation()}
         >
+          <button type="button" className="browser-menu-item" onClick={() => { duplicateTab(tabMenu.id); setTabMenu(null); }}><Copy size={12} />Duplicate Tab</button>
+          <button type="button" className="browser-menu-item" onClick={() => { void surfaceRefs.current.get(tabMenu.id)?.reload(); setTabMenu(null); }}><RotateCw size={12} />Reload Tab</button>
           <button type="button" className="browser-menu-item" onClick={() => {
             setTabs((current) => current.map((tab) => tab.id === tabMenu.id ? { ...tab, isPinned: !tab.isPinned } : tab));
             setTabMenu(null);
@@ -625,8 +753,43 @@ export default function BrowserApp() {
             if (tab) setTabMuted(tab.id, !tab.isMuted);
             setTabMenu(null);
           }}>{tabs.find((tab) => tab.id === tabMenu.id)?.isMuted ? <Volume2 size={12} /> : <VolumeX size={12} />}Toggle Mute</button>
+          <button type="button" className="browser-menu-item" onClick={() => {
+            const tab = tabs.find((item) => item.id === tabMenu.id);
+            if (tab) void getNammuSDK().clipboard.writeText(tab.url);
+            setTabMenu(null);
+          }}><ExternalLink size={12} />Copy Page URL</button>
           <button type="button" className="browser-menu-item text-red-200" onClick={() => { closeTab(tabMenu.id); setTabMenu(null); }}><X size={12} />Close Tab</button>
+          <button type="button" className="browser-menu-item" onClick={() => { closeOtherTabs(tabMenu.id); setTabMenu(null); }}>Close Other Tabs</button>
+          <button type="button" className="browser-menu-item" onClick={() => { closeTabsToRight(tabMenu.id); setTabMenu(null); }}>Close Tabs to the Right</button>
         </div>
+      )}
+
+      {bookmarkMenu && (() => {
+        const bookmark = bookmarks.find((item) => item.id === bookmarkMenu.id);
+        if (!bookmark) return null;
+        return (
+          <div className="nammu-context-surface fixed z-[100] w-44 rounded-xl p-1.5 shadow-2xl" style={{ left: Math.min(bookmarkMenu.x, window.innerWidth - 190), top: Math.min(bookmarkMenu.y, window.innerHeight - 190) }} onPointerDown={(event) => event.stopPropagation()}>
+            <button type="button" className="browser-menu-item" onClick={() => { openTab(bookmark.url); setBookmarkMenu(null); }}><ExternalLink size={12} />Open in New Tab</button>
+            <button type="button" className="browser-menu-item" onClick={() => {
+              setEditingBookmark(bookmark);
+              setBookmarkMenu(null);
+            }}><Pencil size={12} />Edit Bookmark</button>
+            <button type="button" className="browser-menu-item" onClick={() => { void getNammuSDK().clipboard.writeText(bookmark.url); setBookmarkMenu(null); }}><Copy size={12} />Copy Link</button>
+            <button type="button" className="browser-menu-item text-red-200" onClick={() => { setBookmarks((current) => current.filter((item) => item.id !== bookmark.id)); setBookmarkMenu(null); }}><Trash2 size={12} />Delete Bookmark</button>
+          </div>
+        );
+      })()}
+
+      {editingBookmark && (
+        <BookmarkEditor
+          key={editingBookmark.id}
+          bookmark={editingBookmark}
+          onCancel={() => setEditingBookmark(null)}
+          onSave={(next) => {
+            setBookmarks((current) => current.map((item) => item.id === next.id ? next : item));
+            setEditingBookmark(null);
+          }}
+        />
       )}
     </div>
   );
@@ -640,6 +803,7 @@ function BrowserPanel({
   onClose,
   onNavigate,
   onBookmarksChange,
+  onEditBookmark,
   onHistoryChange,
   onPreferencesChange,
   onImportBookmarks,
@@ -652,6 +816,7 @@ function BrowserPanel({
   onClose(): void;
   onNavigate(url: string): void;
   onBookmarksChange(bookmarks: Bookmark[]): void;
+  onEditBookmark(bookmark: Bookmark): void;
   onHistoryChange(history: HistoryEntry[]): void;
   onPreferencesChange(preferences: BrowserPreferences): void;
   onImportBookmarks(): void;
@@ -685,10 +850,7 @@ function BrowserPanel({
           <div key={bookmark.id} className="group mb-1 flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-white/[0.06]">
             {bookmark.favicon ? <img src={bookmark.favicon} alt="" className="h-4 w-4" /> : <Globe2 size={14} />}
             <button type="button" onClick={() => onNavigate(bookmark.url)} className="min-w-0 flex-1 text-left"><span className="block truncate text-[11px] text-white/85">{bookmark.title}</span><span className="block truncate text-[9px] text-white/35">{bookmark.url}</span></button>
-            <button type="button" onClick={() => {
-              const title = window.prompt('Bookmark name', bookmark.title)?.trim();
-              if (title) onBookmarksChange(bookmarks.map((item) => item.id === bookmark.id ? { ...item, title } : item));
-            }} className="browser-control opacity-0 group-hover:opacity-100"><Pencil size={11} /></button>
+            <button type="button" onClick={() => onEditBookmark(bookmark)} className="browser-control opacity-0 group-hover:opacity-100"><Pencil size={11} /></button>
             <button type="button" onClick={() => onBookmarksChange(bookmarks.filter((item) => item.id !== bookmark.id))} className="browser-control opacity-0 group-hover:opacity-100"><Trash2 size={11} /></button>
           </div>
         ))}
@@ -715,6 +877,48 @@ function BrowserPanel({
         )}
       </div>
     </aside>
+  );
+}
+
+function BookmarkEditor({ bookmark, onCancel, onSave }: {
+  bookmark: Bookmark;
+  onCancel(): void;
+  onSave(bookmark: Bookmark): void;
+}) {
+  const [title, setTitle] = useState(bookmark.title);
+  const [url, setUrl] = useState(bookmark.url);
+  const [group, setGroup] = useState(bookmark.group ?? '');
+  const normalized = (() => {
+    try {
+      const candidate = new URL(url);
+      return ['http:', 'https:'].includes(candidate.protocol) ? candidate.href : '';
+    } catch {
+      return '';
+    }
+  })();
+  const valid = Boolean(title.trim() && normalized);
+
+  return (
+    <div className="absolute inset-0 z-[110] grid place-items-center bg-black/30 backdrop-blur-sm">
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        if (!valid) return;
+        onSave({
+          ...bookmark,
+          title: title.trim().slice(0, 160),
+          url: normalized,
+          favicon: getDomainFavicon(normalized),
+          group: group.trim().slice(0, 40) || undefined,
+        });
+      }} className="nammu-context-surface w-[min(360px,calc(100%-32px))] rounded-2xl p-4 shadow-2xl">
+        <h2 className="text-sm font-semibold">Edit Bookmark</h2>
+        <label className="mt-3 block text-[10px] text-white/50">Name<input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} className="mt-1 h-8 w-full rounded-lg border border-white/10 bg-black/20 px-2.5 text-[11px] text-white outline-none focus:border-white/25" /></label>
+        <label className="mt-2 block text-[10px] text-white/50">URL<input value={url} onChange={(event) => setUrl(event.target.value)} className="mt-1 h-8 w-full rounded-lg border border-white/10 bg-black/20 px-2.5 text-[11px] text-white outline-none focus:border-white/25" /></label>
+        <label className="mt-2 block text-[10px] text-white/50">Group<input value={group} onChange={(event) => setGroup(event.target.value)} className="mt-1 h-8 w-full rounded-lg border border-white/10 bg-black/20 px-2.5 text-[11px] text-white outline-none focus:border-white/25" /></label>
+        {!normalized && url.trim() && <p className="mt-2 text-[10px] text-red-200">Enter a public HTTP or HTTPS address.</p>}
+        <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={onCancel} className="panel-action">Cancel</button><button type="submit" disabled={!valid} className="panel-action disabled:opacity-35">Save</button></div>
+      </form>
+    </div>
   );
 }
 

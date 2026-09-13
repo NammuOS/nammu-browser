@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "id": "os.nammu.browser",
   "name": "Browser",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "runtime": "integration",
   "entry": "app/index.html",
   "minNammuVersion": "0.8.0",
