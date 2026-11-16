@@ -98,6 +98,9 @@ function browserError(error: unknown) {
 }
 
 export default function BrowserApp() {
+  const initialLaunchUrl = typeof window !== 'undefined'
+    ? (window as Window & { __NAMMU_INITIAL_URL__?: string }).__NAMMU_INITIAL_URL__
+    : undefined;
   const initialPreferences = useMemo(() => getStoredBrowserPreferences(), []);
   const [preferences, setPreferences] = useState<BrowserPreferences>(initialPreferences);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>(() => getStoredBookmarks());
@@ -127,6 +130,7 @@ export default function BrowserApp() {
   const findInputRef = useRef<HTMLInputElement | null>(null);
   const historyUrlRef = useRef(new Map<string, string>());
   const tabsRef = useRef(tabs);
+  const launchUrlRef = useRef(initialLaunchUrl);
   tabsRef.current = tabs;
 
   useEffect(() => {
@@ -213,6 +217,44 @@ export default function BrowserApp() {
     },
     [activeTab?.id, openTab, preferences.searchEngine],
   );
+
+  useEffect(() => {
+    const launchUrl = launchUrlRef.current;
+    if (!launchUrl) return;
+    launchUrlRef.current = undefined;
+    delete (window as Window & { __NAMMU_INITIAL_URL__?: string }).__NAMMU_INITIAL_URL__;
+    try {
+      const url = new URL(launchUrl);
+      if (url.protocol === 'https:' || url.protocol === 'http:') navigate(url.toString());
+    } catch {
+      // Invalid host launch intents are ignored; the host validates them as well.
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    const shellWindow = window as Window & {
+      __NAMMU_BROWSER_READY__?: boolean;
+      __NAMMU_PENDING_BROWSER_URLS__?: string[];
+    };
+    const openUrl = (value: unknown) => {
+      if (typeof value !== 'string') return;
+      try {
+        const url = new URL(value);
+        if (url.protocol === 'https:' || url.protocol === 'http:') navigate(url.toString(), 'new');
+      } catch {
+        // Ignore malformed navigation requests from the host bridge.
+      }
+    };
+    const onOpenUrl = (event: Event) =>
+      openUrl((event as CustomEvent<{ url?: unknown }>).detail?.url);
+    window.addEventListener('nammu-browser-open-url', onOpenUrl);
+    shellWindow.__NAMMU_BROWSER_READY__ = true;
+    for (const url of shellWindow.__NAMMU_PENDING_BROWSER_URLS__?.splice(0) ?? []) openUrl(url);
+    return () => {
+      shellWindow.__NAMMU_BROWSER_READY__ = false;
+      window.removeEventListener('nammu-browser-open-url', onOpenUrl);
+    };
+  }, [navigate]);
 
   const updateSurfaceState = useCallback((id: string, snapshot: WebSurfaceSnapshot) => {
     setTabs((current) =>
